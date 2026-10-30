@@ -26,7 +26,7 @@ Plataforma web interna para gestão de **clientes, projetos comerciais e control
 
 1. Crie um projeto em <https://supabase.com> (ou use o existente).
 2. Aplique as migrations **na ordem** (SQL Editor do Supabase, ou `supabase db push`):
-   `supabase/migrations/20261030000001_schema.sql` → `…02_views.sql` → `…03_functions.sql` → `…04_seed_conditions.sql` → `…05_harden_functions.sql`.
+   `supabase/migrations/20261030000001_schema.sql` → `…02_views.sql` → `…03_functions.sql` → `…04_seed_conditions.sql` → `…05_harden_functions.sql` → `…06_user_management.sql` → `…07_admin_update_user.sql` → `…08_project_invoice.sql`.
 3. Em **Authentication → Providers → Email**: mantenha e-mail/senha ativo. Depois de criar os usuários da equipe, considere **desativar “Allow new users to sign up”** para impedir novos cadastros externos.
 4. Em **Project Settings → API**, copie a **Project URL** e a chave **anon / publishable** (nunca use a `service_role` no front-end).
 
@@ -58,7 +58,7 @@ npm run build
 
 ### 5. Primeiro acesso
 
-Abra a URL, clique em **“Primeiro acesso? Criar conta”**. **O primeiro usuário cadastrado vira administrador ativo.** Os demais entram inativos e são liberados por um administrador em *Configurações → Usuários*.
+Abra a URL, clique em **“Primeiro acesso? Criar conta”**. **O primeiro usuário cadastrado vira administrador ativo.** Depois, o administrador cria os demais acessos em *Configurações → Usuários → Novo usuário*, escolhendo o perfil **Administrador** (cria e exclui usuários, gerencia configurações) ou **Colaborador** (usa o sistema, sem acesso à gestão de usuários). Contas criadas por cadastro aberto entram inativas até serem liberadas.
 
 > Dica: em *Configurações → Dados de demonstração* há dados fictícios (marcados `[DEMO]`) para explorar o sistema; remova-os com um clique.
 
@@ -84,9 +84,11 @@ audit_log  ← preenchida por trigger em clients, projects, installments e payme
 | `payments` | Recebimentos (parciais permitidos) vinculados à parcela |
 | `audit_log` | Histórico de alterações (valores antigos e novos) |
 
+**Nota Fiscal:** `projects.invoice_number`, `invoice_file_path` e `invoice_file_name` (todos opcionais). O PDF fica no bucket privado `invoices` do Supabase Storage (somente PDF, até 10 MB; acesso só para usuários ativos) e é aberto/baixado por link temporário de 60 segundos.
+
 **Views** (calculam status dinamicamente pela data de hoje em Brasília): `installments_view`, `projects_view`, `clients_view`.
 
-**Funções (RPC):** `create_project`, `replace_pending_installments`, `register_payment`, `load_demo_data`, `remove_demo_data`.
+**Funções (RPC):** `admin_create_user`, `admin_delete_user` (somente administrador), `create_project`, `replace_pending_installments`, `register_payment`, `load_demo_data`, `remove_demo_data`.
 
 Todas as chaves primárias são `uuid`; todas as tabelas têm `created_at`/`updated_at` (exceto `payments`/`audit_log`, que são apenas de inserção).
 

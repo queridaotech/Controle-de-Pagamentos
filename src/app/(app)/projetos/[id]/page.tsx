@@ -3,20 +3,56 @@
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Calculator, Pencil, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Calculator, Download, Eye, Pencil, Trash2 } from "lucide-react";
 import { fetchAudit, fetchInstallments, fetchPayments, fetchProjects } from "@/lib/data";
 import { getSupabase } from "@/lib/supabase/client";
 import { useQuery } from "@/lib/hooks";
 import { formatBRL, formatCNPJ, formatDate } from "@/lib/format";
 import { describeAudit } from "@/lib/audit";
 import { friendlyError } from "@/lib/utils";
-import type { AuditEntry, InstallmentRow } from "@/lib/types";
+import type { AuditEntry, InstallmentRow, ProjectRow } from "@/lib/types";
 import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorBox, KpiCard, PageHeader, ProgressBar, Spinner } from "@/components/ui";
 import { InstallmentsTable } from "@/components/installments-table";
 import { PaymentDialog } from "@/components/forms/payment-dialog";
 import { InstallmentDialog } from "@/components/forms/installment-dialog";
 import { EditProjectDialog, RecalcDialog } from "@/components/forms/project-dialogs";
+import { useInvoiceActions } from "@/components/forms/invoice-fields";
 import { useToast } from "@/components/toast";
+
+function InvoiceCard({ project, onEdit }: { project: ProjectRow; onEdit: () => void }) {
+  const act = useInvoiceActions();
+  const has = !!(project.invoice_number || project.invoice_file_path);
+  return (
+    <Card className="mt-4 flex flex-wrap items-center justify-between gap-3 p-5">
+      <div className="min-w-0">
+        <h2 className="text-[15px] font-bold">Nota Fiscal</h2>
+        {has ? (
+          <p className="mt-0.5 text-sm text-muted">
+            {project.invoice_number ? <>NF nº <span className="font-semibold text-ink">{project.invoice_number}</span></> : "Número não informado"}
+            {project.invoice_file_path ? <> · {project.invoice_file_name || "nota-fiscal.pdf"}</> : " · PDF não anexado"}
+          </p>
+        ) : (
+          <p className="mt-0.5 text-sm text-muted">Nenhuma nota fiscal informada para este projeto.</p>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {project.invoice_file_path && (
+          <>
+            <Button variant="outline" size="sm" onClick={() => act(project.invoice_file_path!, project.invoice_file_name, false)}>
+              <Eye className="h-4 w-4" /> Visualizar
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => act(project.invoice_file_path!, project.invoice_file_name, true)}>
+              <Download className="h-4 w-4" /> Baixar PDF
+            </Button>
+          </>
+        )}
+        <Button variant="secondary" size="sm" onClick={onEdit}>
+          {has ? "Editar NF" : "Informar NF"}
+        </Button>
+      </div>
+    </Card>
+  );
+}
 
 export default function ProjetoDetalhePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -105,6 +141,7 @@ export default function ProjetoDetalhePage({ params }: { params: Promise<{ id: s
         <ProgressBar value={pct} className="flex-1" />
         <Badge tone={project.status === "ativo" ? "green" : project.status === "cancelado" ? "red" : "neutral"}>{project.status === "ativo" ? "Ativo" : project.status === "concluido" ? "Concluído" : "Cancelado"}</Badge>
       </Card>
+      <InvoiceCard project={project} onEdit={() => setEditing(true)} />
       {project.notes && <p className="mt-3 rounded-2xl bg-white p-4 text-sm text-muted shadow-card">{project.notes}</p>}
 
       <Card className="mt-4">

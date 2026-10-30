@@ -47,6 +47,9 @@ export interface ProjectRow {
   installments_count: number;
   installments_paid: number;
   schedule_diff: number;
+  invoice_number: string | null;
+  invoice_file_path: string | null;
+  invoice_file_name: string | null;
 }
 
 export interface InstallmentRow {

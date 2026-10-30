@@ -6,10 +6,12 @@ import { rpc } from "@/lib/data";
 import { addDaysISO, formatBRL, formatCNPJ, formatDate, parseMoney, todayISO } from "@/lib/format";
 import { applyPercents, fromCents, generateSchedule, splitCents, toCents, validateSchedule, type ScheduleRow } from "@/lib/installments";
 import { friendlyError } from "@/lib/utils";
+import { removeInvoiceFile, uploadInvoice } from "@/lib/invoices";
 import { PROJECT_TYPES, type InstallmentRow, type PaymentCondition, type ProjectRow, type ProjectType } from "@/lib/types";
 import { Button, Field, Input, Modal, Select, Textarea } from "../ui";
 import { useToast } from "../toast";
 import { ScheduleEditor } from "./schedule-editor";
+import { EMPTY_INVOICE, InvoiceFields, type InvoiceValue } from "./invoice-fields";
 
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const CUSTOM = "custom";
@@ -43,6 +45,7 @@ export function ProjectDialog({
   const [totalText, setTotalText] = useState("");
   const [conditionId, setConditionId] = useState("");
   const [notes, setNotes] = useState("");
+  const [invoice, setInvoice] = useState<InvoiceValue>(EMPTY_INVOICE);
   const [rows, setRows] = useState<ScheduleRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +61,7 @@ export function ProjectDialog({
     setStartDate(todayISO());
     setFirstDue(todayISO());
     setFirstDueTouched(false);
+    setInvoice(EMPTY_INVOICE);
     setTotalText("");
     setNotes("");
     setError(null);
@@ -99,7 +103,23 @@ export function ProjectDialog({
         p_notes: notes.trim() || null,
         p_installments: rows.map((r) => ({ label: r.label.trim() || "Parcela", percent: r.percent, amount: r.amount, due_date: r.due_date })),
       });
-      toast.ok("Projeto criado e parcelas geradas.");
+      // Nota Fiscal (opcional): o projeto já existe; falhas aqui não desfazem o cadastro
+      const invoiceNumber = invoice.number.trim();
+      let warn: string | null = null;
+      if (invoiceNumber || invoice.file) {
+        try {
+          const up = invoice.file ? await uploadInvoice(id, invoice.file) : null;
+          const { error: upErr } = await getSupabase()
+            .from("projects")
+            .update({ invoice_number: invoiceNumber || null, invoice_file_path: up?.path ?? null, invoice_file_name: up?.name ?? null })
+            .eq("id", id);
+          if (upErr) throw upErr;
+        } catch (e) {
+          warn = `Projeto criado, mas a Nota Fiscal não foi salva (${friendlyError(e)}). Anexe novamente na página do projeto.`;
+        }
+      }
+      if (warn) toast.error(warn);
+      else toast.ok("Projeto criado e parcelas geradas.");
       onSaved(id);
     } catch (e) {
       setError(friendlyError(e));
@@ -175,6 +195,8 @@ export function ProjectDialog({
       <h3 className="mb-2 mt-6 text-sm font-bold">Cronograma de parcelas</h3>
       <ScheduleEditor total={totalNum} rows={rows} onChange={setRows} mode="percent" />
 
+      <InvoiceFields value={invoice} onChange={setInvoice} onError={setError} />
+
       <Field label="Observações" className="mt-5">
         <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
@@ -192,6 +214,7 @@ export function EditProjectDialog({ project, onClose, onSaved }: { project: Proj
   const [status, setStatus] = useState<ProjectRow["status"]>("ativo");
   const [startDate, setStartDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [invoice, setInvoice] = useState<InvoiceValue>(EMPTY_INVOICE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -201,6 +224,7 @@ export function EditProjectDialog({ project, onClose, onSaved }: { project: Proj
     setStatus(project.status);
     setStartDate(project.start_date);
     setNotes(project.notes ?? "");
+    setInvoice({ number: project.invoice_number ?? "", file: null, existing: project.invoice_file_path ? { path: project.invoice_file_path, name: project.invoice_file_name } : null, removeExisting: false });
     setError(null);
   }, [project]);
 
@@ -209,14 +233,38 @@ export function EditProjectDialog({ project, onClose, onSaved }: { project: Proj
   async function save() {
     if (!project) return;
     setBusy(true);
-    const { error } = await getSupabase()
-      .from("projects")
-      .update({ project_type: type, status, start_date: startDate, notes: notes.trim() || null })
-      .eq("id", project.id);
-    setBusy(false);
-    if (error) return setError(friendlyError(error));
-    toast.ok("Projeto atualizado.");
-    onSaved();
+    setError(null);
+    try {
+      // arquivo da NF: novo (substitui), removido ou mantido
+      let path = project.invoice_file_path;
+      let name = project.invoice_file_name;
+      let oldToDelete: string | null = null;
+      if (invoice.file) {
+        const up = await uploadInvoice(project.id, invoice.file);
+        oldToDelete = path;
+        path = up.path;
+        name = up.name;
+      } else if (invoice.removeExisting) {
+        oldToDelete = path;
+        path = null;
+        name = null;
+      }
+      const { error } = await getSupabase()
+        .from("projects")
+        .update({ project_type: type, status, start_date: startDate, notes: notes.trim() || null, invoice_number: invoice.number.trim() || null, invoice_file_path: path, invoice_file_name: name })
+        .eq("id", project.id);
+      if (error) {
+        if (invoice.file && path) await removeInvoiceFile(path); // desfaz o upload órfão
+        throw error;
+      }
+      await removeInvoiceFile(oldToDelete);
+      toast.ok("Projeto atualizado.");
+      onSaved();
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -259,6 +307,7 @@ export function EditProjectDialog({ project, onClose, onSaved }: { project: Proj
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
       </div>
+      <InvoiceFields value={invoice} onChange={setInvoice} onError={setError} />
       <p className="mt-4 text-xs text-muted">Para alterar o valor do projeto e recalcular as parcelas, use “Alterar valor / recalcular parcelas” na página do projeto.</p>
       {error && <p className="mt-4 rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>}
     </Modal>
