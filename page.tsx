@@ -7,7 +7,7 @@ import { getSupabase } from "@/lib/supabase/client";
 import { useQuery } from "@/lib/hooks";
 import { describeAudit } from "@/lib/audit";
 import { friendlyError, cn } from "@/lib/utils";
-import type { PaymentCondition } from "@/lib/types";
+import type { PaymentCondition, Profile } from "@/lib/types";
 import { useAuth } from "@/components/auth";
 import { Badge, Button, Card, ConfirmDialog, EmptyState, ErrorBox, Field, IconButton, Input, Modal, PageHeader, Select, Spinner, Textarea } from "@/components/ui";
 import { useToast } from "@/components/toast";
@@ -291,10 +291,83 @@ function UserDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => 
   );
 }
 
+function EditUserDialog({ user, onClose, onSaved }: { user: Profile | null; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [form, setForm] = useState({ full_name: "", email: "", password: "" });
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    setForm({ full_name: user.full_name ?? "", email: user.email ?? "", password: "" });
+    setShow(false);
+    setError(null);
+  }, [user]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    setError(null);
+    if (!form.full_name.trim()) return setError("Informe o nome.");
+    if (form.password && form.password.length < 8) return setError("A nova senha deve ter pelo menos 8 caracteres.");
+    setBusy(true);
+    try {
+      await rpc("admin_update_user", { p_user_id: user.id, p_full_name: form.full_name, p_email: form.email, p_password: form.password || null });
+      toast.ok("Usuário atualizado.");
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={!!user}
+      onClose={onClose}
+      title="Editar usuário"
+      description="Altere nome, e-mail ou defina uma nova senha. O acesso fica confirmado automaticamente."
+      size="sm"
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" form="edit-user-form" loading={busy}>
+            Salvar
+          </Button>
+        </>
+      }
+    >
+      <form id="edit-user-form" onSubmit={submit} className="grid gap-4">
+        <Field label="Nome">
+          <Input value={form.full_name} onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))} autoComplete="off" required />
+        </Field>
+        <Field label="E-mail">
+          <Input type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} autoComplete="off" required />
+        </Field>
+        <Field label="Nova senha" hint="Deixe em branco para manter a senha atual. Mínimo de 8 caracteres.">
+          <div className="flex gap-2">
+            <Input type={show ? "text" : "password"} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
+            <Button type="button" variant="outline" onClick={() => setShow((v) => !v)}>
+              {show ? "Ocultar" : "Mostrar"}
+            </Button>
+          </div>
+        </Field>
+        {error && <p className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</p>}
+      </form>
+    </Modal>
+  );
+}
+
 function Users({ isAdmin, selfId }: { isAdmin: boolean; selfId?: string }) {
   const toast = useToast();
   const { data, error, loading, reload } = useQuery(fetchProfiles);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Profile | null>(null);
   const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -363,6 +436,9 @@ function Users({ isAdmin, selfId }: { isAdmin: boolean; selfId?: string }) {
                 <Button variant={u.active ? "secondary" : "primary"} size="sm" disabled={u.id === selfId} onClick={() => patch(u.id, { active: !u.active })}>
                   {u.active ? "Desativar" : "Liberar acesso"}
                 </Button>
+                <IconButton onClick={() => setEditing(u)} aria-label={`Editar ${u.full_name || u.email}`}>
+                  <Pencil className="h-4 w-4" />
+                </IconButton>
                 <IconButton disabled={u.id === selfId} onClick={() => setToDelete({ id: u.id, name: u.full_name || u.email || "usuário" })} aria-label={`Excluir ${u.full_name || u.email}`}>
                   <Trash2 className="h-4 w-4" />
                 </IconButton>
@@ -371,6 +447,7 @@ function Users({ isAdmin, selfId }: { isAdmin: boolean; selfId?: string }) {
           ))}
         </ul>
       )}
+      <EditUserDialog user={editing} onClose={() => setEditing(null)} onSaved={reload} />
       <UserDialog open={creating} onClose={() => setCreating(false)} onSaved={reload} />
       <ConfirmDialog open={!!toDelete} title="Excluir usuário?" message={`${toDelete?.name ?? ""} perderá o acesso ao sistema. Os registros que essa pessoa criou continuam preservados. Esta ação não pode ser desfeita.`} confirmLabel="Excluir" danger loading={busy} onClose={() => setToDelete(null)} onConfirm={remove} />
     </Card>
