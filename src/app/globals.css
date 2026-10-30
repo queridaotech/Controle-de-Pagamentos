@@ -1,0 +1,51 @@
+@import "@fontsource-variable/plus-jakarta-sans";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-page font-sans text-ink;
+    font-feature-settings: "tnum" 1;
+  }
+  input[type="date"],
+  input[type="number"] {
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    @apply bg-brand-200;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-card bg-white shadow-card;
+  }
+  .field {
+    @apply h-11 w-full rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none transition placeholder:text-muted/70 focus:border-brand-400 focus:ring-4 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-page;
+  }
+  .th {
+    @apply whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted;
+  }
+  .td {
+    @apply px-4 py-3.5 text-sm;
+  }
+}
+
+/* Impressão de relatórios: esconde navegação e controles */
+@media print {
+  body {
+    background: #fff;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .card {
+    box-shadow: none;
+    border: 1px solid #e3e9e4;
+  }
+}
